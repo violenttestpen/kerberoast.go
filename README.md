@@ -2,7 +2,7 @@
 
 ## Preamble
 
-I was practicing on some Active Directory lab exercises when I faced the frustration of getting kirbi2john playing nice with my local John the Ripper. Hashcat didn't recognise the ticket as well, while tgsrepcrack.py took forever to crack a single ticket owing to its single-threaded nature. Hence, I've implemented tgsrepcrack in Go to maximise my idle CPU cores for a multi-threaded cracking experience.
+I was practicing on some Active Directory lab exercises when I faced the frustration of getting kirbi2john to play nice with my local John the Ripper. To add salt to injury, Hashcat didn't recognise the ticket as well, whereas tgsrepcrack.py took forever to crack a single ticket owing to its single-threaded nature. This is unacceptable in a time attack situation common in CTFs and red team engagements. Hence, I've implemented tgsrepcrack in Go to maximise my idle CPU cores for a better multi-threaded cracking experience.
 
 ## Usage
 
