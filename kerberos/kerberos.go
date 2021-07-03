@@ -39,7 +39,9 @@ var ErrNoTicketsFound = errors.New("No tickets found")
 
 var utf16BufPool = sync.Pool{}
 var md4Pool = sync.Pool{New: func() interface{} { return md4.New() }}
-var rc4BufPool = sync.Pool{}
+var rc4BufPool = make(map[int]*sync.Pool)
+
+var rc4BufRWMutex sync.RWMutex
 
 // ExtractTicketFromKirbi extracts the Kerberos ticket from file
 func ExtractTicketFromKirbi(filename string) ([]byte, error) {
@@ -90,22 +92,32 @@ func Decrypt(key []byte, messagetype int, edata []byte) (data []byte, nonce []by
 	_ = edata[16] // eliminate bounds check
 
 	// Calculate K1, K2
-	msgTypeBytes := []byte{byte(messagetype), 0x0, 0x0, 0x0}
-	K1 := hmac.CalculateHMACMD5(key, msgTypeBytes)
+	msgTypeBytes := [4]byte{byte(messagetype), 0x0, 0x0, 0x0}
+	K1 := hmac.CalculateHMACMD5(key, msgTypeBytes[:])
 
 	// Calculate K3
 	K3 := hmac.CalculateHMACMD5(K1, edata[:16])
 
-	// Perform RC4 encryption
+	// Perform RC4 encryption with individual sync.Pool for different lengths
+	rc4BufRWMutex.RLock()
+	bufPool, ok := rc4BufPool[len(edata)]
+	rc4BufRWMutex.RUnlock()
+	if !ok {
+		bufPool = new(sync.Pool)
+		rc4BufRWMutex.Lock()
+		rc4BufPool[len(edata)] = bufPool
+		rc4BufRWMutex.Unlock()
+	}
+
 	var ddata *[]byte
-	buf := rc4BufPool.Get()
+	buf := bufPool.Get()
 	if buf == nil {
 		ddataBuf := make([]byte, len(edata)-16)
 		ddata = &ddataBuf
 	} else {
 		ddata = buf.(*[]byte)
 	}
-	defer rc4BufPool.Put(ddata)
+	defer bufPool.Put(ddata)
 	rc4crypt(K3, *ddata, edata[16:])
 
 	// Calculate checksum

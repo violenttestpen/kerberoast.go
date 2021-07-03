@@ -99,11 +99,11 @@ func main() {
 					}
 
 					ticketMutex.RLock()
-					tickets := encTickets
+					tickets := encTickets[:]
 					ticketMutex.RUnlock()
 
-					for _, ticket := range tickets {
-						kdata, _, err := kerberos.Decrypt(hash, 2, ticket.et)
+					for i := range tickets[:] {
+						kdata, _, err := kerberos.Decrypt(hash, 2, tickets[i].et)
 						if err != nil && err != kerberos.ErrChecksum {
 							fmt.Println(err)
 							cancel()
@@ -112,10 +112,10 @@ func main() {
 
 						if kdata != nil {
 							ticketMutex.Lock()
-							encTickets = append(encTickets[:ticket.i], encTickets[ticket.i+1:]...)
+							encTickets = append(encTickets[:i], encTickets[i+1:]...)
 							ticketMutex.Unlock()
 
-							fmt.Printf("found password for ticket %d: %s  File: %s\n", ticket.i, word, ticket.filename)
+							fmt.Printf("found password for ticket %d: %s  File: %s\n", tickets[i].i, word, tickets[i].filename)
 							if len(encTickets) == 0 {
 								fmt.Println("Successfully cracked all tickets")
 								cancel()
@@ -189,7 +189,7 @@ func benchmarkMode(encTickets []ticketList) {
 		keys[i], _ = uuid.GenerateUUID()
 	}
 
-	attemptsC := make(chan int64, workers)
+	attemptsC := make(chan int64, workers*uint(len(encTickets)))
 	var wg sync.WaitGroup
 	wg.Add(int(workers))
 	for i := uint(0); i < workers; i++ {
@@ -217,7 +217,7 @@ func benchmarkMode(encTickets []ticketList) {
 	wg.Wait()
 
 	var total int64
-	for i := uint(0); i < workers; i++ {
+	for i, length := uint(0), uint(len(attemptsC)); i < length; i++ {
 		total += <-attemptsC
 	}
 	fmt.Println("Total:", total/int64(len(encTickets)), "keys/s")
