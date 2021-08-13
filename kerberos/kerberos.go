@@ -64,7 +64,7 @@ func extractTicket(data []byte) ([]byte, error) {
 }
 
 // NTLMHash performs a NTLM hash algorithm on the input
-func NTLMHash(s string) ([]byte, error) {
+func NTLMHash(s *string) ([]byte, error) {
 	h := md4Pool.Get().(hash.Hash)
 	defer md4Pool.Put(h)
 	defer h.Reset()
@@ -77,8 +77,8 @@ func NTLMHash(s string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func utf16Encode(s string) []byte {
-	codes := []rune(s) // codes := utf16.Encode([]rune(s))
+func utf16Encode(s *string) []byte {
+	codes := []rune(*s) // codes := utf16.Encode([]rune(s))
 	b := make([]byte, len(codes)*2)
 	for i, r := range codes[:] {
 		b[i*2+1] = byte(r >> 8) // eliminate bounds check
@@ -154,7 +154,7 @@ func rc4crypt(key, dst, src []byte) {
 	}
 
 	x, y = 0, 0
-	for i := range src[:] {
+	for i := range src {
 		x++                                  // x = (x + 1) % 256
 		xValue = box[x]                      //
 		y += xValue                          // y = (y + box[x]) % 256

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/go-uuid"
 	"github.com/violenttestpen/kerberoast.go/kerberos"
 )
 
@@ -37,11 +36,11 @@ type ticketList struct {
 }
 
 func main() {
-	flag.StringVar(&wordlistfile, "w", "", "The wordlist to use")
-	flag.StringVar(&fileString, "f", "", "A comma separated list of filepaths to Kerberos tickets in kirbi format")
+	flag.StringVar(&wordlistfile, "w", "", "Wordlist to use")
+	flag.StringVar(&fileString, "f", "", "Comma-separated list of paths to Kerberos tickets in kirbi format")
 	flag.UintVar(&workers, "t", uint(runtime.NumCPU()), "Number of worker threads")
 	flag.BoolVar(&benchmark, "b", false, "Benchmark mode")
-	flag.BoolVar(&lazyLoad, "-lazy", false, "Enable lazy loading of wordlist for low memory systems")
+	flag.BoolVar(&lazyLoad, "l", false, "Enable lazy loading of wordlist for low memory systems")
 	flag.Parse()
 
 	if fileString == "" {
@@ -63,15 +62,15 @@ func main() {
 		encTickets[i] = ticketList{et: data, i: i, filename: files[i]}
 	}
 
-	if benchmark {
-		benchmarkMode(encTickets)
-		return
-	}
-
 	if len(encTickets) > 0 {
 		fmt.Println("Cracking", len(encTickets), "tickets...")
 	} else {
 		fmt.Println("No tickets found")
+		return
+	}
+
+	if benchmark {
+		benchmarkMode(encTickets)
 		return
 	}
 
@@ -84,7 +83,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(int(workers))
 	for i := uint(0); i < workers; i++ {
-		go func(ctx context.Context, wordlist <-chan string) {
+		go func() {
 			defer wg.Done()
 			for word := range wordlist {
 				select {
@@ -115,7 +114,7 @@ func main() {
 							encTickets = append(encTickets[:i], encTickets[i+1:]...)
 							ticketMutex.Unlock()
 
-							fmt.Printf("found password for ticket %d: %s  File: %s\n", tickets[i].i, word, tickets[i].filename)
+							fmt.Printf("found password for ticket %d: %s  File: %s\n", tickets[i].i, *word, tickets[i].filename)
 							if len(encTickets) == 0 {
 								fmt.Println("Successfully cracked all tickets")
 								cancel()
@@ -125,7 +124,7 @@ func main() {
 					}
 				}
 			}
-		}(ctx, wordlist)
+		}()
 	}
 	wg.Wait()
 
@@ -136,14 +135,14 @@ func main() {
 	fmt.Println("Completed in", time.Since(startTime))
 }
 
-func loadWordlist(ctx context.Context, wordlistfile string) (<-chan string, error) {
-	ch := make(chan string, bufSize)
+func loadWordlist(ctx context.Context, wordlistfile string) (<-chan *string, error) {
+	ch := make(chan *string, bufSize)
 	wordlist, err := os.Open(wordlistfile)
 	if err != nil {
 		return nil, err
 	}
 
-	go func(ctx context.Context) {
+	go func() {
 		defer close(ch)
 		defer wordlist.Close()
 
@@ -154,7 +153,8 @@ func loadWordlist(ctx context.Context, wordlistfile string) (<-chan string, erro
 				case <-ctx.Done():
 					return
 				default:
-					ch <- reader.Text()
+					word := reader.Text()
+					ch <- &word
 				}
 			}
 		} else {
@@ -168,59 +168,19 @@ func loadWordlist(ctx context.Context, wordlistfile string) (<-chan string, erro
 				case <-ctx.Done():
 					return
 				default:
-					ch <- string(data[:i])
+					word := string(data[:i])
+					ch <- &word
 					data = data[i+1:]
 					i = bytes.IndexByte(data, charNewline)
 				}
 			}
 			if len(data) > 0 {
-				ch <- string(data)
+				word := string(data)
+				ch <- &word
 			}
 		}
-	}(ctx)
+	}()
 	return ch, nil
-}
-
-func benchmarkMode(encTickets []ticketList) {
-	const N = 30
-
-	var keys [N]string
-	for i := 0; i < N; i++ {
-		keys[i], _ = uuid.GenerateUUID()
-	}
-
-	attemptsC := make(chan int64, workers*uint(len(encTickets)))
-	var wg sync.WaitGroup
-	wg.Add(int(workers))
-	for i := uint(0); i < workers; i++ {
-		go func(i uint) {
-			defer wg.Done()
-			for _, ticket := range encTickets {
-				var count int64
-				var elapsed time.Duration
-				for elapsed < 1*time.Second {
-					count++
-					startTime := time.Now()
-					for i := 0; i < N; i++ {
-						hash, _ := kerberos.NTLMHash(keys[i])
-						kerberos.Decrypt(hash, 2, ticket.et)
-					}
-					elapsed += time.Since(startTime)
-				}
-
-				attemptsPerSec := N * count * int64(time.Second) / elapsed.Nanoseconds()
-				fmt.Println("Core", i, ":", ticket.filename, ":", attemptsPerSec, "keys/s")
-				attemptsC <- attemptsPerSec
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	var total int64
-	for i, length := uint(0), uint(len(attemptsC)); i < length; i++ {
-		total += <-attemptsC
-	}
-	fmt.Println("Total:", total/int64(len(encTickets)), "keys/s")
 }
 
 func failOnError(err error) {
