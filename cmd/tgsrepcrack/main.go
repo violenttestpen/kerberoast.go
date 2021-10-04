@@ -1,22 +1,17 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/violenttestpen/kerberoast.go/kerberos"
+	"github.com/violenttestpen/kerberoast.go/pkg/kerberos"
+	"github.com/violenttestpen/kerberoast.go/pkg/util"
 )
-
-const bufSize = 10000
-const charNewline = '\n'
 
 var (
 	fileString   string
@@ -58,7 +53,7 @@ func main() {
 	encTickets := make([]ticketList, len(files))
 	for i := range files {
 		data, err := kerberos.ExtractTicketFromKirbi(files[i])
-		failOnError(err)
+		util.FailOnError(err)
 		encTickets[i] = ticketList{et: data, i: i, filename: files[i]}
 	}
 
@@ -77,20 +72,21 @@ func main() {
 	startTime := time.Now()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	wordlist, err := loadWordlist(ctx, wordlistfile)
-	failOnError(err)
+	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad)
+	util.FailOnError(err)
 
 	var wg sync.WaitGroup
 	wg.Add(int(workers))
 	for i := uint(0); i < workers; i++ {
 		go func() {
 			defer wg.Done()
+			k := kerberos.New()
 			for word := range wordlist {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					hash, err := kerberos.NTLMHash(word)
+					hash, err := k.NTLMHash(word)
 					if err != nil {
 						fmt.Println(err)
 						cancel()
@@ -98,11 +94,11 @@ func main() {
 					}
 
 					ticketMutex.RLock()
-					tickets := encTickets[:]
+					tickets := encTickets
 					ticketMutex.RUnlock()
 
-					for i := range tickets[:] {
-						kdata, _, err := kerberos.Decrypt(hash, 2, tickets[i].et)
+					for i := range tickets {
+						kdata, _, err := k.Decrypt(hash, 2, tickets[i].et)
 						if err != nil && err != kerberos.ErrChecksum {
 							fmt.Println(err)
 							cancel()
@@ -133,58 +129,4 @@ func main() {
 	}
 
 	fmt.Println("Completed in", time.Since(startTime))
-}
-
-func loadWordlist(ctx context.Context, wordlistfile string) (<-chan *string, error) {
-	ch := make(chan *string, bufSize)
-	wordlist, err := os.Open(wordlistfile)
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		defer close(ch)
-		defer wordlist.Close()
-
-		if lazyLoad {
-			reader := bufio.NewScanner(wordlist)
-			for reader.Scan() {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					word := reader.Text()
-					ch <- &word
-				}
-			}
-		} else {
-			stat, _ := os.Stat(wordlist.Name())
-			data := make([]byte, stat.Size())
-			wordlist.Read(data)
-
-			i := bytes.IndexByte(data, charNewline)
-			for i != -1 {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					word := string(data[:i])
-					ch <- &word
-					data = data[i+1:]
-					i = bytes.IndexByte(data, charNewline)
-				}
-			}
-			if len(data) > 0 {
-				word := string(data)
-				ch <- &word
-			}
-		}
-	}()
-	return ch, nil
-}
-
-func failOnError(err error) {
-	if err != nil {
-		panic(err)
-	}
 }

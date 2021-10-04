@@ -16,7 +16,8 @@ var helloWorldString = "hello world"
 const helloWorldNTLMHash = "e1cf2a4200eecdf14a4691bbf1ba255a"
 
 func TestNTLNHash(t *testing.T) {
-	hash, _ := NTLMHash(&helloWorldString)
+	k := New()
+	hash, _ := k.NTLMHash(&helloWorldString)
 	if hex.EncodeToString(hash) != helloWorldNTLMHash {
 		t.Error("Expected:", helloWorldNTLMHash, "Actual:", hash)
 	}
@@ -39,8 +40,10 @@ func TestRC4Crypt(t *testing.T) {
 }
 
 func BenchmarkNTLMHash(b *testing.B) {
+	k := New()
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NTLMHash(&dataString)
+		k.NTLMHash(&dataString)
 	}
 }
 
@@ -68,10 +71,11 @@ func BenchmarkMyRC4Crypt(b *testing.B) {
 }
 
 func BenchmarkDecrypt(b *testing.B) {
+	k := New()
 	key, _ := hex.DecodeString(keyString)
 	data, _ := hex.DecodeString(dataString)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Decrypt(key, 2, data)
+		k.Decrypt(key, 2, data)
 	}
 }
