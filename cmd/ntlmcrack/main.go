@@ -1,13 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,18 +26,18 @@ var (
 
 func main() {
 	flag.StringVar(&wordlistfile, "w", "", "Wordlist to use")
-	flag.StringVar(&hash, "h", "", "Hashcat compatible AS-REP hash")
+	flag.StringVar(&hash, "h", "", "NTLM hash")
 	flag.UintVar(&workers, "t", uint(runtime.NumCPU()), "Number of worker threads")
 	flag.BoolVar(&lazyLoad, "l", false, "Enable lazy loading of wordlist for low memory systems")
 	flag.Parse()
 
 	if hash == "" {
-		fmt.Println("Missing AS-REP hash")
+		fmt.Println("Missing NTLM hash")
 		flag.Usage()
 		return
 	}
 
-	asrephash, err := extractASREPHash(hash)
+	hashBytes, err := hex.DecodeString(hash)
 	util.FailOnError(err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -65,16 +64,8 @@ func main() {
 						return
 					}
 
-					// message type 8 for AS-REP instead of type 2
-					kdata, _, err := k.Decrypt(hash[:], 8, asrephash)
-					if err != nil && err != kerberos.ErrChecksum {
-						fmt.Println(err)
-						cancel()
-						return
-					}
-
-					if kdata != nil {
-						fmt.Printf("found password for AS-REP hash: %s\n", *word)
+					if bytes.Equal(hash[:], hashBytes) {
+						fmt.Printf("found password for NTLM hash: %s\n", *word)
 						cancel()
 						return
 					}
@@ -85,17 +76,4 @@ func main() {
 	wg.Wait()
 
 	fmt.Println("Completed in", time.Since(startTime))
-}
-
-func extractASREPHash(hash string) ([]byte, error) {
-	if strings.HasPrefix(hash, "$krb5asrep$23$") {
-		parts := strings.Split(hash[14:], "$")
-		if len(parts) == 2 {
-			if i := strings.Index(parts[0], ":"); i != -1 {
-				return hex.DecodeString(parts[0][i+1:] + parts[1])
-			}
-		}
-	}
-
-	return nil, errors.New("Invalid AS-REP hash")
 }

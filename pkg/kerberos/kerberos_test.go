@@ -5,6 +5,8 @@ import (
 	"crypto/rc4"
 	"encoding/hex"
 	"testing"
+
+	"golang.org/x/crypto/md4"
 )
 
 const keyString = "f2cddb01eb3bd8499f409dc938b6e2b7"
@@ -17,8 +19,9 @@ const helloWorldNTLMHash = "e1cf2a4200eecdf14a4691bbf1ba255a"
 
 func TestNTLNHash(t *testing.T) {
 	k := New()
-	hash, _ := k.NTLMHash(&helloWorldString)
-	if hex.EncodeToString(hash) != helloWorldNTLMHash {
+	var hash [md4.Size]byte
+	_ = k.NTLMHash(&helloWorldString, hash[:])
+	if hex.EncodeToString(hash[:]) != helloWorldNTLMHash {
 		t.Error("Expected:", helloWorldNTLMHash, "Actual:", hash)
 	}
 }
@@ -41,9 +44,10 @@ func TestRC4Crypt(t *testing.T) {
 
 func BenchmarkNTLMHash(b *testing.B) {
 	k := New()
+	var hash [md4.Size]byte
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		k.NTLMHash(&dataString)
+		k.NTLMHash(&dataString, hash[:])
 	}
 }
 

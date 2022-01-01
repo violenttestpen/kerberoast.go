@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/go-uuid"
 	"github.com/violenttestpen/kerberoast.go/pkg/kerberos"
+	"golang.org/x/crypto/md4"
 )
 
 func benchmarkMode(encTickets []ticketList) {
@@ -26,6 +27,7 @@ func benchmarkMode(encTickets []ticketList) {
 		go func(i uint) {
 			defer wg.Done()
 			k := kerberos.New()
+			var hash [md4.Size]byte
 			for _, ticket := range encTickets {
 				var count int64
 				var elapsed time.Duration
@@ -34,8 +36,8 @@ func benchmarkMode(encTickets []ticketList) {
 					count++
 					startTime := time.Now()
 					for i := 0; i < N; i++ {
-						hash, _ := k.NTLMHash(&keys[i])
-						k.Decrypt(hash, 2, ticket.et)
+						_ = k.NTLMHash(&keys[i], hash[:])
+						k.Decrypt(hash[:], 2, ticket.et)
 					}
 					elapsed += time.Since(startTime)
 				}

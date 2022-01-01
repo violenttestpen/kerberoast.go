@@ -11,6 +11,7 @@ import (
 
 	"github.com/violenttestpen/kerberoast.go/pkg/kerberos"
 	"github.com/violenttestpen/kerberoast.go/pkg/util"
+	"golang.org/x/crypto/md4"
 )
 
 var (
@@ -69,24 +70,24 @@ func main() {
 		return
 	}
 
-	startTime := time.Now()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad)
 	util.FailOnError(err)
 
+	startTime := time.Now()
 	var wg sync.WaitGroup
 	wg.Add(int(workers))
 	for i := uint(0); i < workers; i++ {
 		go func() {
 			defer wg.Done()
 			k := kerberos.New()
+			var hash [md4.Size]byte
 			for word := range wordlist {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					hash, err := k.NTLMHash(word)
+					err := k.NTLMHash(word, hash[:])
 					if err != nil {
 						fmt.Println(err)
 						cancel()
@@ -98,7 +99,7 @@ func main() {
 					ticketMutex.RUnlock()
 
 					for i := range tickets {
-						kdata, _, err := k.Decrypt(hash, 2, tickets[i].et)
+						kdata, _, err := k.Decrypt(hash[:], 2, tickets[i].et)
 						if err != nil && err != kerberos.ErrChecksum {
 							fmt.Println(err)
 							cancel()

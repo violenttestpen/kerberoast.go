@@ -2,6 +2,7 @@ package kerberos
 
 import (
 	"bytes"
+	"crypto/md5"
 	"errors"
 	"hash"
 	"os"
@@ -23,8 +24,13 @@ var rc4Box [256]uint8
 // TGSRepStruct contains the components used for TGS-REP roasting
 type TGSRepStruct struct {
 	md4Hasher hash.Hash
-	hmacMD5   *hmac.HmacMD5
+	hmacMD5   *hmac.MD5
 	rc4Buf    []byte
+	utf16Buf  []byte
+
+	K1       [md5.Size]byte
+	K3       [md5.Size]byte
+	checksum [md5.Size]byte
 }
 
 func init() {
@@ -35,7 +41,7 @@ func init() {
 
 // New returns a newly allocated instance of TGSRepStruct
 func New() *TGSRepStruct {
-	return &TGSRepStruct{md4Hasher: md4.New(), hmacMD5: hmac.New(), rc4Buf: make([]byte, 0)}
+	return &TGSRepStruct{md4Hasher: md4.New(), hmacMD5: hmac.New()}
 }
 
 // ExtractTicketFromKirbi extracts the Kerberos ticket from file
@@ -58,24 +64,25 @@ func extractTicket(data []byte) ([]byte, error) {
 	return nil, ErrNoTicketsFound
 }
 
-// NTLMHash performs a NTLM hash algorithm on the input
-func (k *TGSRepStruct) NTLMHash(s *string) ([]byte, error) {
+// NTLMHash performs a NTLM hash algorithm on the input and saves it in `out`. `out` should be an array slice of size 16
+func (k *TGSRepStruct) NTLMHash(s *string, out []byte) error {
 	defer k.md4Hasher.Reset()
 
-	b := utf16Encode(s)
-	if _, err := k.md4Hasher.Write(b); err != nil {
-		return nil, err
+	k.utf16Buf = utf16Encode(s, k.utf16Buf)
+	if _, err := k.md4Hasher.Write(k.utf16Buf); err != nil {
+		return err
 	}
 
-	return k.md4Hasher.Sum(nil), nil
+	k.md4Hasher.Sum(out[:0])
+	return nil
 }
 
-func utf16Encode(s *string) []byte {
+func utf16Encode(s *string, b []byte) []byte {
 	codes := []rune(*s) // codes := utf16.Encode([]rune(s))
-	b := make([]byte, len(codes)*2)
-	for i, r := range codes[:] {
-		b[i*2+1] = byte(r >> 8) // eliminate bounds check
-		b[i*2] = byte(r)
+	b = b[:0]
+	for _, r := range codes {
+		b = append(b, byte(r))
+		b = append(b, byte(r>>8))
 	}
 	return b
 }
@@ -86,19 +93,19 @@ func (k *TGSRepStruct) Decrypt(key []byte, messagetype int, edata []byte) (data 
 
 	// Calculate K1, K2
 	msgTypeBytes := [4]byte{byte(messagetype), 0x0, 0x0, 0x0}
-	K1 := k.hmacMD5.CalculateHMACMD5(key, msgTypeBytes[:])
+	k.hmacMD5.CalculateMD5(key, msgTypeBytes[:], k.K1[:])
 
 	// Calculate K3
-	K3 := k.hmacMD5.CalculateHMACMD5(K1, edata[:16])
+	k.hmacMD5.CalculateMD5(k.K1[:], edata[:16], k.K3[:])
 
 	// Perform RC4 encryption
 	k.rc4Buf = append(k.rc4Buf, edata[16:]...)
-	rc4crypt(K3, k.rc4Buf, edata[16:])
+	rc4crypt(k.K3[:], k.rc4Buf, edata[16:])
 
 	// Calculate checksum
-	checksum := k.hmacMD5.CalculateHMACMD5(K1, k.rc4Buf)
+	k.hmacMD5.CalculateMD5(k.K1[:], k.rc4Buf, k.checksum[:])
 
-	if bytes.Equal(checksum, edata[:16]) {
+	if bytes.Equal(k.checksum[:], edata[:16]) {
 		data, nonce = k.rc4Buf[8:], k.rc4Buf[:8]
 	} else {
 		err = ErrChecksum

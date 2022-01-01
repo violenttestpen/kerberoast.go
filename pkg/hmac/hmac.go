@@ -1,64 +1,57 @@
 package hmac
 
 import (
+	"bytes"
 	"hash"
 
 	"crypto/md5"
 )
 
-type HmacMD5 struct {
+// MD5 represents a struct containing the necessary stuff to perform HMAC-MD5
+type MD5 struct {
 	outer hash.Hash
 	inner hash.Hash
 
 	opad [md5.BlockSize]byte
 	ipad [md5.BlockSize]byte
+
+	buf []byte
 }
 
 var (
-	ipadBase [md5.BlockSize]byte
-	opadBase [md5.BlockSize]byte
+	ipadBase []byte = bytes.Repeat([]byte{0x36}, md5.BlockSize)
+	opadBase []byte = bytes.Repeat([]byte{0x5c}, md5.BlockSize)
 )
 
-func init() {
-	for i := range ipadBase {
-		ipadBase[i] = 0x36
-	}
-	for i := range opadBase {
-		opadBase[i] = 0x5c
-	}
+func New() *MD5 {
+	return &MD5{outer: md5.New(), inner: md5.New(), buf: make([]byte, md5.Size)}
 }
 
-func New() *HmacMD5 {
-	return &HmacMD5{outer: md5.New(), inner: md5.New()}
-}
-
-// CalculateHMACMD5 calculates a HMAC-MD5 checksum of the data
-func (h *HmacMD5) CalculateHMACMD5(key []byte, data []byte) []byte {
-	defer func() {
-		h.outer.Reset()
-		h.inner.Reset()
-	}()
-
-	copy(h.ipad[:], ipadBase[:])
-	copy(h.opad[:], opadBase[:])
+// CalculateMD5 calculates a HMAC-MD5 checksum of the data and saves it in `out`. `out` should be an array slice of size 16
+func (h *MD5) CalculateMD5(key []byte, data []byte, out []byte) {
+	copy(h.ipad[:], ipadBase)
+	copy(h.opad[:], opadBase)
 
 	if len(key) > md5.BlockSize {
 		// If key is too big, hash it.
 		h.outer.Write(key)
-		key = h.outer.Sum(nil)
+		key = h.outer.Sum(h.buf[:0])
 	}
 
-	for i := range key {
-		h.ipad[i] ^= key[i]
-		h.opad[i] ^= key[i]
+	for i, k := range key {
+		h.ipad[i] ^= k
+		h.opad[i] ^= k
 	}
 
 	h.inner.Write(h.ipad[:])
 	h.inner.Write(data)
-	in := h.inner.Sum(nil)
+	h.inner.Sum(h.buf[:0])
 
 	h.outer.Reset()
 	h.outer.Write(h.opad[:])
-	h.outer.Write(in)
-	return h.outer.Sum(nil)
+	h.outer.Write(h.buf)
+	h.outer.Sum(out[:0])
+
+	h.outer.Reset()
+	h.inner.Reset()
 }
