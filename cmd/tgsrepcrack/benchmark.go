@@ -28,6 +28,7 @@ func benchmarkMode(encTickets []ticketList) {
 			defer wg.Done()
 			k := kerberos.New()
 			var hash [md4.Size]byte
+			msgType := [4]byte{0x2, 0x0, 0x0, 0x0}
 			for _, ticket := range encTickets {
 				var count int64
 				var elapsed time.Duration
@@ -36,8 +37,8 @@ func benchmarkMode(encTickets []ticketList) {
 					count++
 					startTime := time.Now()
 					for i := 0; i < N; i++ {
-						_ = k.NTLMHash(&keys[i], hash[:])
-						k.Decrypt(hash[:], 2, ticket.et)
+						_ = k.NTLMHash(keys[i], hash[:])
+						k.Decrypt(hash[:], msgType[:], ticket.et)
 					}
 					elapsed += time.Since(startTime)
 				}

@@ -11,8 +11,8 @@ const bufSize = 10000
 const charNewline = '\n'
 
 // LoadWordlist returns a stream of words from a file
-func LoadWordlist(ctx context.Context, wordlistfile string, lazyLoad bool) (<-chan *string, error) {
-	ch := make(chan *string, bufSize)
+func LoadWordlist(ctx context.Context, wordlistfile string, lazyLoad bool, chunkSize int) (<-chan []string, error) {
+	ch := make(chan []string, bufSize)
 	wordlist, err := os.Open(wordlistfile)
 	if err != nil {
 		return nil, err
@@ -22,6 +22,7 @@ func LoadWordlist(ctx context.Context, wordlistfile string, lazyLoad bool) (<-ch
 		defer close(ch)
 		defer wordlist.Close()
 
+		var buf []string
 		if lazyLoad {
 			reader := bufio.NewScanner(wordlist)
 			for reader.Scan() {
@@ -29,8 +30,16 @@ func LoadWordlist(ctx context.Context, wordlistfile string, lazyLoad bool) (<-ch
 				case <-ctx.Done():
 					return
 				default:
+					if buf == nil {
+						buf = make([]string, 0, chunkSize)
+					}
+
 					word := reader.Text()
-					ch <- &word
+					buf = append(buf, word)
+					if len(buf) == chunkSize {
+						ch <- buf
+						buf = nil
+					}
 				}
 			}
 		} else {
@@ -44,16 +53,30 @@ func LoadWordlist(ctx context.Context, wordlistfile string, lazyLoad bool) (<-ch
 				case <-ctx.Done():
 					return
 				default:
+					if buf == nil {
+						buf = make([]string, 0, chunkSize)
+					}
+
 					word := string(data[:i])
-					ch <- &word
+					buf = append(buf, word)
+
+					if len(buf) == chunkSize {
+						ch <- buf
+						buf = nil
+					}
+
 					data = data[i+1:]
 					i = bytes.IndexByte(data, charNewline)
 				}
 			}
 			if len(data) > 0 {
 				word := string(data)
-				ch <- &word
+				buf = append(buf, word)
 			}
+		}
+
+		if buf != nil {
+			ch <- buf
 		}
 	}()
 	return ch, nil

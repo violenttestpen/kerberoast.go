@@ -65,7 +65,7 @@ func extractTicket(data []byte) ([]byte, error) {
 }
 
 // NTLMHash performs a NTLM hash algorithm on the input and saves it in `out`. `out` should be an array slice of size 16
-func (k *TGSRepStruct) NTLMHash(s *string, out []byte) error {
+func (k *TGSRepStruct) NTLMHash(s string, out []byte) error {
 	defer k.md4Hasher.Reset()
 
 	k.utf16Buf = utf16Encode(s, k.utf16Buf)
@@ -77,8 +77,8 @@ func (k *TGSRepStruct) NTLMHash(s *string, out []byte) error {
 	return nil
 }
 
-func utf16Encode(s *string, b []byte) []byte {
-	codes := []rune(*s) // codes := utf16.Encode([]rune(s))
+func utf16Encode(s string, b []byte) []byte {
+	codes := []rune(s) // codes := utf16.Encode([]rune(s))
 	b = b[:0]
 	for _, r := range codes {
 		b = append(b, byte(r))
@@ -88,12 +88,11 @@ func utf16Encode(s *string, b []byte) []byte {
 }
 
 // Decrypt tries to decrypt the ticket data with the supplied key
-func (k *TGSRepStruct) Decrypt(key []byte, messagetype int, edata []byte) (data []byte, nonce []byte, err error) {
+func (k *TGSRepStruct) Decrypt(key []byte, msgType []byte, edata []byte) (data []byte, nonce []byte, err error) {
 	_ = edata[16] // eliminate bounds check
 
 	// Calculate K1, K2
-	msgTypeBytes := [4]byte{byte(messagetype), 0x0, 0x0, 0x0}
-	k.hmacMD5.CalculateMD5(key, msgTypeBytes[:], k.K1[:])
+	k.hmacMD5.CalculateMD5(key, msgType[:], k.K1[:])
 
 	// Calculate K3
 	k.hmacMD5.CalculateMD5(k.K1[:], edata[:16], k.K3[:])

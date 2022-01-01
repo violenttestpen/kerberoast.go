@@ -23,6 +23,7 @@ var (
 	workers      uint
 	benchmark    bool
 	lazyLoad     bool
+	chunkSize    int
 )
 
 func main() {
@@ -30,6 +31,7 @@ func main() {
 	flag.StringVar(&hash, "h", "", "Hashcat compatible AS-REP hash")
 	flag.UintVar(&workers, "t", uint(runtime.NumCPU()), "Number of worker threads")
 	flag.BoolVar(&lazyLoad, "l", false, "Enable lazy loading of wordlist for low memory systems")
+	flag.IntVar(&chunkSize, "s", 32, "Chunk size")
 	flag.Parse()
 
 	if hash == "" {
@@ -42,7 +44,7 @@ func main() {
 	util.FailOnError(err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad)
+	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad, chunkSize)
 	util.FailOnError(err)
 
 	startTime := time.Now()
@@ -52,31 +54,34 @@ func main() {
 		go func() {
 			defer wg.Done()
 			k := kerberos.New()
+			msgType := [4]byte{0x8, 0x0, 0x0, 0x0}
 			var hash [md4.Size]byte
-			for word := range wordlist {
+			for words := range wordlist {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					err := k.NTLMHash(word, hash[:])
-					if err != nil {
-						fmt.Println(err)
-						cancel()
-						return
-					}
+					for _, word := range words {
+						err := k.NTLMHash(word, hash[:])
+						if err != nil {
+							fmt.Println(err)
+							cancel()
+							return
+						}
 
-					// message type 8 for AS-REP instead of type 2
-					kdata, _, err := k.Decrypt(hash[:], 8, asrephash)
-					if err != nil && err != kerberos.ErrChecksum {
-						fmt.Println(err)
-						cancel()
-						return
-					}
+						// message type 8 for AS-REP instead of type 2
+						kdata, _, err := k.Decrypt(hash[:], msgType[:], asrephash)
+						if err != nil && err != kerberos.ErrChecksum {
+							fmt.Println(err)
+							cancel()
+							return
+						}
 
-					if kdata != nil {
-						fmt.Printf("found password for AS-REP hash: %s\n", *word)
-						cancel()
-						return
+						if kdata != nil {
+							fmt.Printf("found password for AS-REP hash: %s\n", word)
+							cancel()
+							return
+						}
 					}
 				}
 			}

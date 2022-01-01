@@ -21,6 +21,7 @@ var (
 	workers      uint
 	benchmark    bool
 	lazyLoad     bool
+	chunkSize    int
 )
 
 var ticketMutex sync.RWMutex
@@ -37,6 +38,7 @@ func main() {
 	flag.UintVar(&workers, "t", uint(runtime.NumCPU()), "Number of worker threads")
 	flag.BoolVar(&benchmark, "b", false, "Benchmark mode")
 	flag.BoolVar(&lazyLoad, "l", false, "Enable lazy loading of wordlist for low memory systems")
+	flag.IntVar(&chunkSize, "s", 32, "Chunk size")
 	flag.Parse()
 
 	if fileString == "" {
@@ -71,7 +73,7 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad)
+	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad, chunkSize)
 	util.FailOnError(err)
 
 	startTime := time.Now()
@@ -81,41 +83,44 @@ func main() {
 		go func() {
 			defer wg.Done()
 			k := kerberos.New()
+			msgType := [4]byte{0x2, 0x0, 0x0, 0x0}
 			var hash [md4.Size]byte
-			for word := range wordlist {
+			for words := range wordlist {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					err := k.NTLMHash(word, hash[:])
-					if err != nil {
-						fmt.Println(err)
-						cancel()
-						return
-					}
-
-					ticketMutex.RLock()
-					tickets := encTickets
-					ticketMutex.RUnlock()
-
-					for i := range tickets {
-						kdata, _, err := k.Decrypt(hash[:], 2, tickets[i].et)
-						if err != nil && err != kerberos.ErrChecksum {
+					for _, word := range words {
+						err := k.NTLMHash(word, hash[:])
+						if err != nil {
 							fmt.Println(err)
 							cancel()
 							return
 						}
 
-						if kdata != nil {
-							ticketMutex.Lock()
-							encTickets = append(encTickets[:i], encTickets[i+1:]...)
-							ticketMutex.Unlock()
+						ticketMutex.RLock()
+						tickets := encTickets
+						ticketMutex.RUnlock()
 
-							fmt.Printf("found password for ticket %d: %s  File: %s\n", tickets[i].i, *word, tickets[i].filename)
-							if len(encTickets) == 0 {
-								fmt.Println("Successfully cracked all tickets")
+						for i := range tickets {
+							kdata, _, err := k.Decrypt(hash[:], msgType[:], tickets[i].et)
+							if err != nil && err != kerberos.ErrChecksum {
+								fmt.Println(err)
 								cancel()
 								return
+							}
+
+							if kdata != nil {
+								ticketMutex.Lock()
+								encTickets = append(encTickets[:i], encTickets[i+1:]...)
+								ticketMutex.Unlock()
+
+								fmt.Printf("found password for ticket %d: %s  File: %s\n", tickets[i].i, word, tickets[i].filename)
+								if len(encTickets) == 0 {
+									fmt.Println("Successfully cracked all tickets")
+									cancel()
+									return
+								}
 							}
 						}
 					}
