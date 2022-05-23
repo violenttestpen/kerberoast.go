@@ -77,13 +77,13 @@ func main() {
 	util.FailOnError(err)
 
 	startTime := time.Now()
+	msgType := []byte{0x2, 0x0, 0x0, 0x0}
 	var wg sync.WaitGroup
 	wg.Add(int(workers))
 	for i := uint(0); i < workers; i++ {
 		go func() {
 			defer wg.Done()
 			k := kerberos.New()
-			msgType := [4]byte{0x2, 0x0, 0x0, 0x0}
 			var hash [md4.Size]byte
 			for words := range wordlist {
 				select {
@@ -103,7 +103,7 @@ func main() {
 						ticketMutex.RUnlock()
 
 						for i := range tickets {
-							kdata, _, err := k.Decrypt(hash[:], msgType[:], tickets[i].et)
+							kdata, _, err := k.Decrypt(hash[:], msgType, tickets[i].et)
 							if err != nil && err != kerberos.ErrChecksum {
 								fmt.Println(err)
 								cancel()

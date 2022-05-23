@@ -57,7 +57,7 @@ func BenchmarkRC4Crypt(b *testing.B) {
 	out, nullSlice := make([]byte, len(data)), make([]byte, len(data))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		copy(out[:], nullSlice[:])
+		copy(out, nullSlice)
 		enc, _ := rc4.NewCipher(key)
 		enc.XORKeyStream(out, data)
 	}
@@ -69,7 +69,7 @@ func BenchmarkMyRC4Crypt(b *testing.B) {
 	out, nullSlice := make([]byte, len(data)), make([]byte, len(data))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		copy(out[:], nullSlice[:])
+		copy(out, nullSlice)
 		rc4crypt(key, data, out)
 	}
 }

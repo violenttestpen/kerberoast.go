@@ -66,14 +66,13 @@ func extractTicket(data []byte) ([]byte, error) {
 
 // NTLMHash performs a NTLM hash algorithm on the input and saves it in `out`. `out` should be an array slice of size 16
 func (k *TGSRepStruct) NTLMHash(s string, out []byte) error {
-	defer k.md4Hasher.Reset()
-
 	k.utf16Buf = utf16Encode(s, k.utf16Buf)
 	if _, err := k.md4Hasher.Write(k.utf16Buf); err != nil {
 		return err
 	}
 
 	k.md4Hasher.Sum(out[:0])
+	k.md4Hasher.Reset()
 	return nil
 }
 
@@ -92,7 +91,7 @@ func (k *TGSRepStruct) Decrypt(key []byte, msgType []byte, edata []byte) (data [
 	_ = edata[16] // eliminate bounds check
 
 	// Calculate K1, K2
-	k.hmacMD5.CalculateMD5(key, msgType[:], k.K1[:])
+	k.hmacMD5.CalculateMD5(key, msgType, k.K1[:])
 
 	// Calculate K3
 	k.hmacMD5.CalculateMD5(k.K1[:], edata[:16], k.K3[:])
