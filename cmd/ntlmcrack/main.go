@@ -21,7 +21,6 @@ var (
 	wordlistfile string
 	workers      uint
 	benchmark    bool
-	lazyLoad     bool
 	chunkSize    int
 )
 
@@ -29,7 +28,6 @@ func main() {
 	flag.StringVar(&wordlistfile, "w", "", "Wordlist to use")
 	flag.StringVar(&hash, "h", "", "NTLM hash")
 	flag.UintVar(&workers, "t", uint(runtime.NumCPU()), "Number of worker threads")
-	flag.BoolVar(&lazyLoad, "l", false, "Enable lazy loading of wordlist for low memory systems")
 	flag.IntVar(&chunkSize, "s", 32, "Chunk size")
 	flag.Parse()
 
@@ -43,7 +41,7 @@ func main() {
 	util.FailOnError(err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	wordlist, err := util.LoadWordlist(ctx, wordlistfile, lazyLoad, chunkSize)
+	wordlist, err := util.LoadWordlist(ctx, wordlistfile, chunkSize)
 	util.FailOnError(err)
 
 	startTime := time.Now()
